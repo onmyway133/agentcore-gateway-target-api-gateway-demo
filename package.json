@@ -1,0 +1,27 @@
+{
+  "name": "agentcore-gateway-target-private-api-demo",
+  "version": "1.0.0",
+  "bin": {
+    "agentcore-gateway-target-private-api-demo": "bin/app.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "synth": "cdk synth",
+    "deploy": "cdk deploy",
+    "destroy": "cdk destroy",
+    "diff": "cdk diff"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.268.0",
+    "constructs": "^10.4.0",
+    "source-map-support": "^0.5.21"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.149",
+    "@types/node": "^22.0.0",
+    "aws-cdk": "^2.268.0",
+    "esbuild": "^0.25.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.0"
+  }
+}

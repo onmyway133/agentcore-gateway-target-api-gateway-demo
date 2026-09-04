@@ -101,6 +101,95 @@ export class AgentcoreDemoStack extends cdk.Stack {
       },
     }
 
+    const filmsFunction = new lambda.Function(this, "FilmsFunction", {
+      runtime: lambda.Runtime.NODEJS_22_X,
+      handler: "films-handler.handler",
+      code: lambda.Code.fromAsset(path.join(__dirname, "..", "src")),
+    })
+
+    // PRIVATE is API Gateway's genuinely-private endpoint type: it has no
+    // public DNS name at all, and is only reachable from VPCs whose
+    // endpoint is explicitly associated with it via vpcEndpoints below.
+    // That association is also what makes AWS generate the VPCE-specific
+    // Route 53 alias used as this API's servers.url in the OpenAPI schema
+    // further down. Reuses the same execute-api VPC endpoint as the books
+    // API — a single endpoint can be associated with multiple private APIs.
+    const filmsApi = new apigateway.RestApi(this, "FilmsApi", {
+      endpointConfiguration: {
+        types: [apigateway.EndpointType.PRIVATE],
+        vpcEndpoints: [executeApiEndpoint],
+      },
+      deploy: true,
+      deployOptions: { stageName: "sit" },
+    })
+    filmsApi.grantInvokeFromVpcEndpointsOnly([executeApiEndpoint])
+
+    const films = filmsApi.root.addResource("films")
+    films.addMethod("GET", new apigateway.LambdaIntegration(filmsFunction))
+
+    // addOpenApiTarget() has no VPC-routing option either, and unlike
+    // addApiGatewayTarget() it also has no restApi/stage field — the
+    // backend host is defined entirely by this schema's servers.url. We
+    // point it at the VPCE-specific alias so calls only ever traverse the
+    // private API via our VPC endpoint, never the public internet.
+    const filmsApiUrl = `https://${filmsApi.restApiId}-${executeApiEndpoint.vpcEndpointId}.execute-api.${cdk.Stack.of(this).region}.amazonaws.com/sit`
+
+    const filmsApiSchema = agentcore.ApiSchema.fromInline(
+      JSON.stringify({
+        openapi: "3.0.1",
+        info: { title: "Films API", version: "1.0.0" },
+        servers: [{ url: filmsApiUrl }],
+        paths: {
+          "/films": {
+            get: {
+              operationId: "getFilms",
+              summary: "List Norwegian films",
+              responses: {
+                "200": {
+                  description: "A list of films",
+                  content: {
+                    "application/json": {
+                      schema: {
+                        type: "object",
+                        properties: {
+                          films: {
+                            type: "array",
+                            items: {
+                              type: "object",
+                              properties: {
+                                id: { type: "integer" },
+                                title: { type: "string" },
+                                director: { type: "string" },
+                                year: { type: "integer" },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+    )
+
+    const filmsTarget = gateway.addOpenApiTarget("FilmsTarget", {
+      apiSchema: filmsApiSchema,
+    })
+
+    const cfnFilmsTarget = filmsTarget.node.defaultChild as agentcore.CfnGatewayTarget
+    cfnFilmsTarget.privateEndpoint = {
+      managedVpcResource: {
+        vpcIdentifier: vpc.vpcId,
+        subnetIds: vpc.isolatedSubnets.map((subnet) => subnet.subnetId),
+        securityGroupIds: [vpcEndpointSg.securityGroupId],
+        endpointIpAddressType: "IPV4",
+      },
+    }
+
     const harnessRole = new iam.Role(this, "HarnessRole", {
       assumedBy: new iam.ServicePrincipal("bedrock-agentcore.amazonaws.com"),
     })
@@ -124,6 +213,11 @@ export class AgentcoreDemoStack extends cdk.Stack {
     })
 
     new cdk.CfnOutput(this, "BooksApiUrl", { value: booksApi.url })
+    // filmsApi.url is the standard (unreachable outside the VPC) hostname —
+    // included for reference only. The Gateway target actually calls the
+    // VPCE-specific alias baked into filmsApiUrl above.
+    new cdk.CfnOutput(this, "FilmsApiUrl", { value: filmsApi.url })
+    new cdk.CfnOutput(this, "FilmsApiVpceUrl", { value: filmsApiUrl })
     new cdk.CfnOutput(this, "GatewayId", { value: gateway.gatewayId })
     new cdk.CfnOutput(this, "GatewayArn", { value: gateway.gatewayArn })
   }

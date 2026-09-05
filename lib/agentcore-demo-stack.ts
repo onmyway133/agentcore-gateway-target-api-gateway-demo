@@ -178,6 +178,15 @@ export class AgentcoreDemoStack extends cdk.Stack {
 
     const filmsTarget = gateway.addOpenApiTarget("FilmsTarget", {
       apiSchema: filmsApiSchema,
+      // OpenAPI targets don't sign outbound requests by default. Without an
+      // explicit IAM role credential provider (service/region), the gateway
+      // can't SigV4-sign the call to the private API and it fails at runtime.
+      credentialProviderConfigurations: [
+        agentcore.GatewayCredentialProvider.fromIamRole({
+          service: "execute-api",
+          region: cdk.Stack.of(this).region,
+        }),
+      ],
     })
 
     const cfnFilmsTarget = filmsTarget.node.defaultChild as agentcore.CfnGatewayTarget
